@@ -26,7 +26,7 @@ func uploadHandler(c echo.Context) error {
 
 	if !ok {
 		logger.Error("s3Client not found in context")
-		logger.Debug("Context: ", c)
+		logger.Debug("Reference Context: ", slog.String("context", fmt.Sprint(c)))
 		return echo.NewHTTPError(http.StatusInternalServerError, "s3Client not found in context")
 	}
 
@@ -34,14 +34,14 @@ func uploadHandler(c echo.Context) error {
 
 	if !ok {
 		logger.Error("Replicate Client not found in context")
-		logger.Debug("Context: ", c)
+		logger.Debug("Reference Context: ", slog.String("context", fmt.Sprint(c)))
 		return echo.NewHTTPError(http.StatusInternalServerError, "Error with Replicate Client")
 	}
 
 	file, err := c.FormFile("file")
 	if err != nil {
 		logger.Error("File not found", err)
-		logger.Debug("Context: ", c)
+		logger.Debug("Reference Context: ", slog.String("context", fmt.Sprint(c)))
 		return echo.NewHTTPError(http.StatusInternalServerError, "File not found")
 	}
 
@@ -49,7 +49,7 @@ func uploadHandler(c echo.Context) error {
 
 	if name == "" {
 		logger.Error("Name field not found in the submitted form")
-		logger.Debug("Context: ", c)
+		logger.Debug("Reference Context: ", slog.String("context", fmt.Sprint(c)))
 		return echo.NewHTTPError(http.StatusInternalServerError)
 	}
 
@@ -57,7 +57,9 @@ func uploadHandler(c echo.Context) error {
 
 	if err != nil {
 		logger.Error("Error opening file", err)
-		logger.Debug("Filename: ", file.Filename, "Header: ", file.Header)
+		logger.Debug("File Info: ",
+			slog.String("Filename", file.Filename),
+			slog.String("Header", fmt.Sprint(file.Header)))
 		return echo.NewHTTPError(http.StatusInternalServerError)
 	}
 
@@ -68,7 +70,10 @@ func uploadHandler(c echo.Context) error {
 	url, err := s3Client.UploadImageToS3(uploadPath, src)
 	if err != nil {
 		logger.Error("s3Client.UploadImageToS3 failed with error:", err)
-		logger.Debug("Filename: ", file.Filename, "Header: ", file.Header)
+		logger.Debug("File Info: ",
+			slog.String("Filename", file.Filename),
+			slog.String("Header", fmt.Sprint(file.Header)))
+
 		return echo.NewHTTPError(http.StatusInternalServerError)
 	}
 
@@ -103,7 +108,7 @@ func uploadMultipleFilesHandler(c echo.Context) error {
 
 	if !ok {
 		logger.Error("s3Client not found in context")
-		logger.Debug("Context: ", c)
+		logger.Debug("Reference Context: ", slog.String("context", fmt.Sprint(c)))
 		return echo.NewHTTPError(http.StatusInternalServerError, "s3Client not found in context")
 	}
 
@@ -111,14 +116,14 @@ func uploadMultipleFilesHandler(c echo.Context) error {
 
 	if !ok {
 		logger.Error("Replicate Client not found in context")
-		logger.Debug("Context: ", c)
+		logger.Debug("Reference Context: ", slog.String("context", fmt.Sprint(c)))
 		return echo.NewHTTPError(http.StatusInternalServerError, "Error with Replicate Client")
 	}
 
 	form, err := c.MultipartForm()
 	if err != nil {
 		logger.Error("Failed to read multipart form", err)
-		logger.Debug("Context: ", c)
+		logger.Debug("Reference Context: ", slog.String("context", fmt.Sprint(c)))
 		return echo.NewHTTPError(http.StatusInternalServerError, "Failed to read multipart form")
 	}
 
@@ -128,7 +133,7 @@ func uploadMultipleFilesHandler(c echo.Context) error {
 
 	if name == "" {
 		logger.Error("Name not found in the submitted form")
-		logger.Debug("Context: ", c)
+		logger.Debug("Reference Context: ", slog.String("context", fmt.Sprint(c)))
 		return echo.NewHTTPError(http.StatusInternalServerError)
 	}
 
@@ -141,7 +146,9 @@ func uploadMultipleFilesHandler(c echo.Context) error {
 
 		if err != nil {
 			logger.Error("Error opening file", err)
-			logger.Debug("Filename: ", file.Filename, "Header: ", file.Header)
+			logger.Debug("File Info: ",
+				slog.String("Filename", file.Filename),
+				slog.String("Header", fmt.Sprint(file.Header)))
 			return err
 		}
 
@@ -176,7 +183,8 @@ func uploadMultipleFilesHandler(c echo.Context) error {
 
 		if err != nil {
 			logger.Error("Failed to rename file with error", err)
-			logger.Debug("Filename: ", newFileName, "uploadPath:", fileExt)
+
+			logger.Debug("File Info", slog.String("Filename", newFileName), slog.String("uploadPath", uploadPath))
 			logger.Info("Continuing to next file")
 			continue
 		}

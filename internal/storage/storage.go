@@ -47,7 +47,6 @@ func (s *S3Client) RenameFile(originalKey string, newKey string) (string, error)
 	defer cancel()
 
 	if err != nil {
-		err = fmt.Errorf("error creating AWS session: %v", err)
 		return "", err
 	}
 
@@ -61,11 +60,11 @@ func (s *S3Client) RenameFile(originalKey string, newKey string) (string, error)
 	})
 
 	if err != nil {
-		err = fmt.Errorf("failed to copy object file from %s to %s,  %v", originalKey, newKey, err)
+		s.Logger.Error("failed to copy object file from %s to %s,  %v", originalKey, newKey, err)
 		return "", err
 	}
 
-	fmt.Println("Waiting for file to be copied")
+	s.Logger.Debug("Waiting for file to be copied", slog.String("originalKey", originalKey), slog.String("newKey", newKey))
 	err = svc.WaitUntilObjectExistsWithContext(ctx, &s3.HeadObjectInput{
 		Bucket: aws.String(s.Bucket),
 		Key:    aws.String(newKey),
