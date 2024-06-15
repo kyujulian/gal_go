@@ -12,10 +12,6 @@ import (
 	"github.com/joho/godotenv"
 )
 
-type Config struct {
-	allowedOrigins []string
-}
-
 func main() {
 
 	logger := slog.New(slog.NewJSONHandler(os.Stderr, nil))
@@ -42,12 +38,12 @@ func main() {
 
 	// check if the env variables are set
 	if bucketName == "" || awsRegion == "" || awsAccessKey == "" || awsSecretKey == "" || replicateToken == "" || replicateModelIdentifier == "" {
-		fmt.Println("Need set the environment variables")
+		fmt.Println("Environment Variables not properly set")
 		return
 	}
 
-	s3Client := storage.NewS3Client(awsAccessKey, awsSecretKey, awsRegion, bucketName)
-	rClient := altgen.NewReplicateClient(replicateToken, replicateModelIdentifier)
+	s3Client := storage.NewS3Client(awsAccessKey, awsSecretKey, awsRegion, bucketName, logger)
+	rClient := altgen.NewReplicateClient(replicateToken, replicateModelIdentifier, logger)
 
 	server.StartServer(&s3Client, &rClient, allowedOrigins, logger)
 

@@ -20,18 +20,20 @@ type ReplicateClient struct {
 	Logger          *slog.Logger
 }
 
-func NewReplicateClient(token string, modelIdentifier string) ReplicateClient {
+func NewReplicateClient(token string, modelIdentifier string, logger *slog.Logger) ReplicateClient {
 	return ReplicateClient{
 		Token:           token,
 		ModelIdentifier: modelIdentifier,
+		Logger:          logger,
 	}
 }
 
-func (r *ReplicateClient) RequestCaption(imageUrl string) (ImageOutput, error) {
+func (r *ReplicateClient) RequestCaption(imageUrl string) (ImageOutput, error) { // This indicates that the error is handled by the caller
 	ctx := context.Background()
 
-	// You can also provide a token directly with
+	// Internal Replicate Client
 	r8, err := replicate.NewClient(replicate.WithToken(r.Token))
+
 	if err != nil {
 		fmt.Println("Error creating Replicate client")
 		return ImageOutput{}, err
@@ -41,7 +43,7 @@ func (r *ReplicateClient) RequestCaption(imageUrl string) (ImageOutput, error) {
 		"image": imageUrl,
 	}
 
-	webhook := replicate.Webhook{
+	webhook := replicate.Webhook{ // dafuq is this?
 		URL:    "https://example.com/webhook",
 		Events: []replicate.WebhookEventType{"start", "completed"},
 	}
@@ -51,6 +53,7 @@ func (r *ReplicateClient) RequestCaption(imageUrl string) (ImageOutput, error) {
 	// If you want a reference to the prediction, you can call `CreatePrediction`,
 	// call `Wait` on the prediction, and access its `Output` field.
 
+	r.Logger.Info("Creating prediction", slog.String("prompt_url", imageUrl))
 	prediction, err := r8.CreatePrediction(ctx, r.ModelIdentifier, input, &webhook, false)
 	if err != nil {
 		// handle error

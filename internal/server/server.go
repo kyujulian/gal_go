@@ -19,35 +19,46 @@ import (
 )
 
 func uploadHandler(c echo.Context) error {
+	// Logger should never fail
+	logger, _ := c.Get("logger").(*slog.Logger)
 
 	s3Client, ok := c.Get("s3Client").(*storage.S3Client)
 
 	if !ok {
+		logger.Error("s3Client not found in context")
+		logger.Debug("Context: ", c)
 		return echo.NewHTTPError(http.StatusInternalServerError, "s3Client not found in context")
 	}
 
 	rClient, ok := c.Get("replicateClient").(*altgen.ReplicateClient)
 
 	if !ok {
-		return echo.NewHTTPError(http.StatusInternalServerError, "replicateClient not found in context")
+		logger.Error("Replicate Client not found in context")
+		logger.Debug("Context: ", c)
+		return echo.NewHTTPError(http.StatusInternalServerError, "Error with Replicate Client")
 	}
 
 	file, err := c.FormFile("file")
 	if err != nil {
+		logger.Error("File not found", err)
+		logger.Debug("Context: ", c)
 		return echo.NewHTTPError(http.StatusInternalServerError, "File not found")
 	}
 
 	name := c.FormValue("name")
 
 	if name == "" {
-		return echo.NewHTTPError(http.StatusInternalServerError, "Name not found")
+		logger.Error("Name field not found in the submitted form")
+		logger.Debug("Context: ", c)
+		return echo.NewHTTPError(http.StatusInternalServerError)
 	}
 
 	src, err := file.Open()
 
 	if err != nil {
-		fmt.Println("Error opening file")
-		return err
+		logger.Error("Error opening file", err)
+		logger.Debug("Filename: ", file.Filename, "Header: ", file.Header)
+		return echo.NewHTTPError(http.StatusInternalServerError)
 	}
 
 	key := file.Filename
@@ -56,13 +67,16 @@ func uploadHandler(c echo.Context) error {
 
 	url, err := s3Client.UploadImageToS3(uploadPath, src)
 	if err != nil {
-		return echo.NewHTTPError(http.StatusInternalServerError, "Fail to Upload file to S3")
+		logger.Error("s3Client.UploadImageToS3 failed with error:", err)
+		logger.Debug("Filename: ", file.Filename, "Header: ", file.Header)
+		return echo.NewHTTPError(http.StatusInternalServerError)
 	}
 
 	predictionOutput, err := rClient.RequestCaption(url)
 
 	if err != nil {
-		return echo.NewHTTPError(http.StatusInternalServerError, "Fail to get caption from Replicate")
+		logger.Error("rClient.RequestCaption failed with error: ", err)
+		return echo.NewHTTPError(http.StatusInternalServerError)
 	}
 
 	caption := predictionOutput.Caption
@@ -72,7 +86,8 @@ func uploadHandler(c echo.Context) error {
 	url, err = s3Client.RenameFile(uploadPath, name+"/"+newFileName+".jpg")
 
 	if err != nil {
-		return echo.NewHTTPError(http.StatusInternalServerError, "Fail to Upload file to S3")
+		logger.Error("s3Client.RenameFile failed with error: ", err)
+		return echo.NewHTTPError(http.StatusInternalServerError)
 	}
 
 	return c.JSON(http.StatusOK, map[string]string{
@@ -83,20 +98,27 @@ func uploadHandler(c echo.Context) error {
 
 func uploadMultipleFilesHandler(c echo.Context) error {
 
+	logger, _ := c.Get("logger").(*slog.Logger)
 	s3Client, ok := c.Get("s3Client").(*storage.S3Client)
 
 	if !ok {
+		logger.Error("s3Client not found in context")
+		logger.Debug("Context: ", c)
 		return echo.NewHTTPError(http.StatusInternalServerError, "s3Client not found in context")
 	}
 
 	rClient, ok := c.Get("replicateClient").(*altgen.ReplicateClient)
 
 	if !ok {
-		return echo.NewHTTPError(http.StatusInternalServerError, "replicateClient not found in context")
+		logger.Error("Replicate Client not found in context")
+		logger.Debug("Context: ", c)
+		return echo.NewHTTPError(http.StatusInternalServerError, "Error with Replicate Client")
 	}
 
 	form, err := c.MultipartForm()
 	if err != nil {
+		logger.Error("Failed to read multipart form", err)
+		logger.Debug("Context: ", c)
 		return echo.NewHTTPError(http.StatusInternalServerError, "Failed to read multipart form")
 	}
 
@@ -105,23 +127,28 @@ func uploadMultipleFilesHandler(c echo.Context) error {
 	name := c.FormValue("name")
 
 	if name == "" {
-		return echo.NewHTTPError(http.StatusInternalServerError, "Name not found")
+		logger.Error("Name not found in the submitted form")
+		logger.Debug("Context: ", c)
+		return echo.NewHTTPError(http.StatusInternalServerError)
 	}
 
 	results := make([]map[string]string, 0)
 
 	//Process each file
 	for _, file := range files {
+
 		src, err := file.Open()
 
 		if err != nil {
-			fmt.Println("Error opening file")
+			logger.Error("Error opening file", err)
+			logger.Debug("Filename: ", file.Filename, "Header: ", file.Header)
 			return err
 		}
 
 		key := file.Filename
 		uploadPath := name + "/" + key
 
+		logger.Info("Uploading file to S3", slog.String("key", key))
 		url, err := s3Client.UploadImageToS3(uploadPath, src)
 
 		if err != nil {
@@ -131,6 +158,7 @@ func uploadMultipleFilesHandler(c echo.Context) error {
 		}
 		src.Close()
 
+		logger.Info("Requesting caption from Replicate", slog.String("url", url))
 		predictionOutput, err := rClient.RequestCaption(url)
 		if err != nil {
 			fmt.Println("Failed to get caption from Replicate")
@@ -142,10 +170,14 @@ func uploadMultipleFilesHandler(c echo.Context) error {
 		fileExt := filepath.Ext(file.Filename)
 
 		newFileName := strings.ReplaceAll(predictionOutput.Caption, " ", "-") + fileExt
+
+		logger.Info("Sending rename file Request to S3", slog.String("old_key", key), slog.String("new_key", newFileName))
 		newUrl, err := s3Client.RenameFile(uploadPath, name+"/"+newFileName)
 
 		if err != nil {
-			fmt.Println("Failed to rename file")
+			logger.Error("Failed to rename file with error", err)
+			logger.Debug("Filename: ", newFileName, "uploadPath:", fileExt)
+			logger.Info("Continuing to next file")
 			continue
 		}
 		results = append(results, map[string]string{
@@ -164,6 +196,7 @@ func uploadMultipleFilesHandler(c echo.Context) error {
 
 func generateCsv(results []map[string]string, name string, s3Client *storage.S3Client, c echo.Context) (map[string]interface{}, error) {
 
+	logger, _ := c.Get("logger").(*slog.Logger)
 	// Create a buffer to hold the CSV data
 	var csvBuffer bytes.Buffer
 	writer := csv.NewWriter(&csvBuffer)
@@ -181,7 +214,7 @@ func generateCsv(results []map[string]string, name string, s3Client *storage.S3C
 
 	// Check for any error while writing to the CSV
 	if err := writer.Error(); err != nil {
-		fmt.Println("Error writing CSV:", err)
+		logger.Error("Error writing CSV:", err)
 		return data, fmt.Errorf("error generating CSV")
 	}
 
@@ -193,7 +226,7 @@ func generateCsv(results []map[string]string, name string, s3Client *storage.S3C
 	csvUrl, err := s3Client.UploadImageToS3(csvUploadPath, csvReader)
 
 	if err != nil {
-		fmt.Println("Failed writings csv to S3", err)
+		logger.Error("Failed writings csv to S3", err)
 		return data, fmt.Errorf("failed writing csv to S3")
 	}
 
@@ -213,6 +246,7 @@ func StartServer(s3Client *storage.S3Client, rClient *altgen.ReplicateClient, al
 	// Set middlewares
 	e.Use(S3ClientMiddleware(s3Client))
 	e.Use(ReplicateClientMiddleware(rClient))
+	e.Use(LoggerMiddleware(logger))
 
 	e.Use(middleware.CORSWithConfig(middleware.CORSConfig{
 		AllowOrigins: allowedOrigins, // Allow only specific origin

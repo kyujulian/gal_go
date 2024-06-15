@@ -25,12 +25,13 @@ type S3Client struct {
 	Logger          *slog.Logger
 }
 
-func NewS3Client(awsAccessKey, awsSecretKey, awsRegion, bucketName string) S3Client {
+func NewS3Client(awsAccessKey, awsSecretKey, awsRegion, bucketName string, logger *slog.Logger) S3Client {
 	return S3Client{
 		Region:          awsRegion,
 		AccessKeyID:     awsAccessKey,
 		SecretAccessKey: awsSecretKey,
 		Bucket:          bucketName,
+		Logger:          logger,
 	}
 }
 
