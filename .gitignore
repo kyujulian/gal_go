@@ -1,0 +1,8 @@
+*.env
+
+curl_command
+**/*.jpg
+**/*.png
+**/*.jpeg
+
+
