@@ -4,6 +4,9 @@ import (
 	"bytes"
 	"gal/internal/storage"
 
+	"mime/multipart"
+	"sync"
+
 	"github.com/labstack/echo/v4"
 	"github.com/labstack/echo/v4/middleware"
 
@@ -138,60 +141,72 @@ func uploadMultipleFilesHandler(c echo.Context) error {
 	}
 
 	results := make([]map[string]string, 0)
+	resultsChan := make(chan map[string]string, len(files))
+	errChan := make(chan error, len(files))
+
+	var wg sync.WaitGroup
+	wg.Add(len(files))
 
 	//Process each file
 	for _, file := range files {
 
-		src, err := file.Open()
+		go func(file *multipart.FileHeader) {
+			defer wg.Done()
 
-		if err != nil {
-			logger.Error("Error opening file", err)
-			logger.Debug("File Info: ",
-				slog.String("Filename", file.Filename),
-				slog.String("Header", fmt.Sprint(file.Header)))
-			return err
-		}
+			src, err := file.Open()
 
-		key := file.Filename
-		uploadPath := name + "/" + key
+			if err != nil {
+				logger.Error("Error opening file", err)
+				logger.Debug("File Info: ",
+					slog.String("Filename", file.Filename),
+					slog.String("Header", fmt.Sprint(file.Header)))
 
-		logger.Info("Uploading file to S3", slog.String("key", key))
-		url, err := s3Client.UploadImageToS3(uploadPath, src)
+				errChan <- err
+				return
+			}
+			defer src.Close()
 
-		if err != nil {
-			fmt.Println("Failed to upload file to S3")
+			key := file.Filename
+			uploadPath := name + "/" + key
+
+			logger.Info("Uploading file to S3", slog.String("key", key))
+			url, err := s3Client.UploadImageToS3(uploadPath, src)
+
+			if err != nil {
+				fmt.Println("Failed to upload file to S3")
+				src.Close()
+				continue
+			}
 			src.Close()
-			continue
-		}
-		src.Close()
 
-		logger.Info("Requesting caption from Replicate", slog.String("url", url))
-		predictionOutput, err := rClient.RequestCaption(url)
-		if err != nil {
-			fmt.Println("Failed to get caption from Replicate")
-			continue
-		}
+			logger.Info("Requesting caption from Replicate", slog.String("url", url))
+			predictionOutput, err := rClient.RequestCaption(url)
+			if err != nil {
+				fmt.Println("Failed to get caption from Replicate")
+				continue
+			}
 
-		caption := predictionOutput.Caption
+			caption := predictionOutput.Caption
 
-		fileExt := filepath.Ext(file.Filename)
+			fileExt := filepath.Ext(file.Filename)
 
-		newFileName := strings.ReplaceAll(predictionOutput.Caption, " ", "-") + fileExt
+			newFileName := strings.ReplaceAll(predictionOutput.Caption, " ", "-") + fileExt
 
-		logger.Info("Sending rename file Request to S3", slog.String("old_key", key), slog.String("new_key", newFileName))
-		newUrl, err := s3Client.RenameFile(uploadPath, name+"/"+newFileName)
+			logger.Info("Sending rename file Request to S3", slog.String("old_key", key), slog.String("new_key", newFileName))
+			newUrl, err := s3Client.RenameFile(uploadPath, name+"/"+newFileName)
 
-		if err != nil {
-			logger.Error("Failed to rename file with error", err)
+			if err != nil {
+				logger.Error("Failed to rename file with error", err)
 
-			logger.Debug("File Info", slog.String("Filename", newFileName), slog.String("uploadPath", uploadPath))
-			logger.Info("Continuing to next file")
-			continue
-		}
-		results = append(results, map[string]string{
-			"url":     newUrl,
-			"caption": caption,
-		})
+				logger.Debug("File Info", slog.String("Filename", newFileName), slog.String("uploadPath", uploadPath))
+				logger.Info("Continuing to next file")
+				continue
+			}
+			results = append(results, map[string]string{
+				"url":     newUrl,
+				"caption": caption,
+			})
+		}()
 	}
 
 	data, err := generateCsv(results, name, s3Client, c)
